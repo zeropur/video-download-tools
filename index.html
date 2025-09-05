@@ -360,8 +360,8 @@
     <script>
         // 全局变量存储解析结果
         let currentVideoData = null;
-        const API_KEY = '146bf99b0e1c443fac2f01ea5726c73e'; // API密钥
-        const API_BASE_URL = 'https://api.guijianpan.com/waterRemoveDetail/xxmQsyByAk';
+        const GET_AWEME_ID_API = 'http://165.227.10.15/api/douyin/web/get_aweme_id';
+        const GET_VIDEO_INFO_API = 'http://165.227.10.15/api/douyin/web/fetch_one_video';
 
 
 
@@ -416,26 +416,56 @@
             hideMessages();
 
             try {
-                const apiUrl = `${API_BASE_URL}?ak=${API_KEY}&link=${encodeURIComponent(videoUrl)}`;
-                const response = await fetch(apiUrl);
+                // 第一步：获取aweme_id
+                const awemeIdUrl = `${GET_AWEME_ID_API}?url=${encodeURIComponent(videoUrl)}`;
+                console.log('获取aweme_id请求URL:', awemeIdUrl);
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP错误: ${response.status}`);
+                const awemeIdResponse = await fetch(awemeIdUrl);
+                
+                if (!awemeIdResponse.ok) {
+                    throw new Error(`获取aweme_id失败: ${awemeIdResponse.status}`);
                 }
 
-                const data = await response.json();
+                const awemeIdData = await awemeIdResponse.json();
+                console.log('aweme_id API返回数据:', awemeIdData);
                 
-                // 调试：打印API返回的完整数据结构
-                console.log('API返回数据:', data);
-                
-                if (data.code === '10000' && data.content && data.content.success) {
-                    currentVideoData = data.content;
-                    console.log('视频数据:', currentVideoData);
-                    displayVideoInfo(currentVideoData);
-                    showSuccess('视频解析成功！');
-                } else {
-                    throw new Error(data.msg || '解析失败，请检查链接是否正确');
+                if (awemeIdData.code !== 200 || !awemeIdData.data) {
+                    throw new Error('获取aweme_id失败，请检查链接是否正确');
                 }
+
+                const awemeId = awemeIdData.data;
+                console.log('获取到的aweme_id:', awemeId);
+
+                // 第二步：获取视频信息
+                const videoInfoUrl = `${GET_VIDEO_INFO_API}?aweme_id=${awemeId}`;
+                console.log('获取视频信息请求URL:', videoInfoUrl);
+                
+                const videoInfoResponse = await fetch(videoInfoUrl);
+                
+                if (!videoInfoResponse.ok) {
+                    throw new Error(`获取视频信息失败: ${videoInfoResponse.status}`);
+                }
+
+                const videoInfoData = await videoInfoResponse.json();
+                console.log('视频信息API返回数据:', videoInfoData);
+                
+                if (videoInfoData.code !== 200 || !videoInfoData.data || !videoInfoData.data.aweme_detail) {
+                    throw new Error('获取视频信息失败');
+                }
+
+                // 处理视频数据
+                const awemeDetail = videoInfoData.data.aweme_detail;
+                currentVideoData = {
+                    title: awemeDetail.desc || '无标题',
+                    cover_url: awemeDetail.video && awemeDetail.video.dynamic_cover && awemeDetail.video.dynamic_cover.url_list && awemeDetail.video.dynamic_cover.url_list.length > 0 ? awemeDetail.video.dynamic_cover.url_list[0] : '',
+                    video_url: awemeDetail.video && awemeDetail.video.download_addr && awemeDetail.video.download_addr.url_list && awemeDetail.video.download_addr.url_list.length > 0 ? awemeDetail.video.download_addr.url_list[0] : '',
+                    aweme_id: awemeId
+                };
+                
+                console.log('处理后的视频数据:', currentVideoData);
+                displayVideoInfo(currentVideoData);
+                showSuccess('视频解析成功！');
+                
             } catch (error) {
                 console.error('解析错误:', error);
                 showError(`解析失败: ${error.message}`);
@@ -448,10 +478,8 @@
         // 显示视频信息
         function displayVideoInfo(videoData) {
             const title = videoData.title || '无标题';
-            // 尝试多个可能的视频URL字段
-            const videoUrl = videoData.video_url || videoData.play_url || videoData.download_url || videoData.url || '无视频地址';
-            // 尝试多个可能的封面URL字段
-            const coverUrl = videoData.cover_url || videoData.pic_url || videoData.image_url || videoData.cover || '无封面地址';
+            const videoUrl = videoData.video_url || '无视频地址';
+            const coverUrl = videoData.cover_url || '无封面地址';
             
             // 调试：打印字段值
             console.log('标题:', title);
@@ -467,8 +495,8 @@
             const coverPreview = document.getElementById('coverPreview');
             
             // 显示封面（如果有的话）
-            if (videoData.cover) {
-                coverPreview.innerHTML = `<img src="${videoData.cover}" alt="视频封面" style="max-width: 100%; height: auto; border-radius: 8px; margin-top: 15px;" onerror="this.style.display='none'">`;
+            if (coverUrl && coverUrl !== '无封面地址') {
+                coverPreview.innerHTML = `<img src="${coverUrl}" alt="视频封面" style="max-width: 100%; height: auto; border-radius: 8px; margin-top: 15px;" onerror="this.style.display='none'">`;
                 coverPreview.style.display = 'block';
             } else {
                 coverPreview.innerHTML = '<p style="color: #999; padding: 20px; text-align: center;">无封面图片</p>';
@@ -486,8 +514,7 @@
                 return;
             }
             
-            // 使用与displayVideoInfo相同的逻辑获取视频URL
-            const videoUrl = currentVideoData.video_url || currentVideoData.play_url || currentVideoData.download_url || currentVideoData.url;
+            const videoUrl = currentVideoData.video_url;
             
             if (!videoUrl || videoUrl === '无视频地址') {
                 showError('视频地址不可用！');
@@ -507,8 +534,7 @@
                 return;
             }
             
-            // 使用与displayVideoInfo相同的逻辑获取封面URL
-            const coverUrl = currentVideoData.cover_url || currentVideoData.pic_url || currentVideoData.image_url || currentVideoData.cover;
+            const coverUrl = currentVideoData.cover_url;
             
             if (!coverUrl || coverUrl === '无封面地址') {
                 showError('封面地址不可用！');
@@ -532,12 +558,10 @@
                     textToCopy = currentVideoData?.title || '';
                     break;
                 case 'video':
-                    // 使用与displayVideoInfo相同的逻辑获取视频URL
-                    textToCopy = currentVideoData?.video_url || currentVideoData?.play_url || currentVideoData?.download_url || currentVideoData?.url || '';
+                    textToCopy = currentVideoData?.video_url || '';
                     break;
                 case 'cover':
-                    // 使用与displayVideoInfo相同的逻辑获取封面URL
-                    textToCopy = currentVideoData?.cover_url || currentVideoData?.pic_url || currentVideoData?.image_url || currentVideoData?.cover || '';
+                    textToCopy = currentVideoData?.cover_url || '';
                     break;
                 default:
                     showError('复制类型错误！');
